@@ -9,9 +9,9 @@ public class Seq extends ASeq implements IReduce, Reversible, IChunkedSeq, ISeek
   Seq   _parent;
   ANode _node;
   int   _idx;
-  final ANode _finalNodeFirstKey;
+  boolean _isFinalLeaf;
+  final Object _finalNodeFirstKey;
   final int _finalIdx;
-  final boolean _isFinalLeaf;
   final Object _keyTo;
   final Comparator _cmp;
   final boolean _asc;
@@ -32,7 +32,7 @@ public class Seq extends ASeq implements IReduce, Reversible, IChunkedSeq, ISeek
     _isFinalLeaf = false;
   }
 
-  Seq(IPersistentMap meta, PersistentSortedSet set, Seq parent, ANode node, int idx, ANode final_node, int finalIdx, Object keyTo, Comparator cmp, boolean asc, int version) {
+  Seq(IPersistentMap meta, PersistentSortedSet set, Seq parent, ANode node, int idx, Object finalNodeFirstKey, int finalIdx, Object keyTo, Comparator cmp, boolean asc, int version) {
     super(meta);
     _set = set;
     _parent = parent;
@@ -42,7 +42,7 @@ public class Seq extends ASeq implements IReduce, Reversible, IChunkedSeq, ISeek
     _cmp    = cmp;
     _asc    = asc;
     _version = version;
-    _finalNodeFirstKey = final_node._keys[0];
+    _finalNodeFirstKey = finalNodeFirstKey;
     _finalIdx = finalIdx;
     _isFinalLeaf = isFinalLeaf();
   }
@@ -165,7 +165,7 @@ public class Seq extends ASeq implements IReduce, Reversible, IChunkedSeq, ISeek
 
   public Seq chunkedNext() {
     checkVersion();
-    if (_parent == null) return null;
+    if (_parent == null || _isFinalLeaf) return null;
     Seq nextParent = _parent.next();
     if (nextParent == null) return null;
     ANode node = nextParent.child();
@@ -199,13 +199,6 @@ public class Seq extends ASeq implements IReduce, Reversible, IChunkedSeq, ISeek
   public Seq seek(Object to) { return seek(to, _cmp); }
   public Seq seek(Object to, Comparator cmp) {
     if (to == null) throw new RuntimeException("seek can't be called with a nil key!");
-    if (_keyTo != null) {
-      int d = _cmp.compare(to, _keyTo);
-      // Empty seq if we're seeking past the end??
-      if ((_asc && d > 0) || (!_asc && d < 0)) {
-        return null;
-      }
-    }
     Seq seq = this._parent;
     ANode node = this._node;
 
@@ -227,10 +220,10 @@ public class Seq extends ASeq implements IReduce, Reversible, IChunkedSeq, ISeek
         if (idx == node._len)
           return null;
         if (node instanceof Branch) {
-          seq = new Seq(null, this._set, seq, node, idx, _finalNodeFirstKey, _finalIdx, null, null, true, _version);
+          seq = new Seq(null, this._set, seq, node, idx, null, null, true, _version);
           node = seq.child();
         } else { // Leaf
-          seq = new Seq(null, this._set, seq, node, idx, _finalNodeFirstKey, _finalIdx, _keyTo, cmp, true, _version);
+          seq = new Seq(null, this._set, seq, node, idx, this._keyTo, cmp, true, _version);
           return seq.over() ? null : seq;
         }
       }
@@ -247,15 +240,15 @@ public class Seq extends ASeq implements IReduce, Reversible, IChunkedSeq, ISeek
         if (node instanceof Branch) {
           int idx = node.searchLast(to, cmp) + 1;
           if (idx == node._len) --idx; // last or beyond, clamp to last
-          seq = new Seq(null, this._set, seq, node, idx, _finalNodeFirstKey, _finalIdx, null, null, false, _version);
+          seq = new Seq(null, this._set, seq, node, idx, null, null, false, _version);
           node = seq.child();
         } else { // Leaf
           int idx = node.searchLast(to, cmp);
           if (idx == -1) { // not in this, so definitely in prev
-            seq = new Seq(null, this._set, seq, node, 0, _finalNodeFirstKey, _finalIdx, this._keyTo, cmp, false, _version);
+            seq = new Seq(null, this._set, seq, node, 0, this._keyTo, cmp, false, _version);
             return seq.advance() ? seq : null;
           } else { // exact match
-            seq = new Seq(null, this._set, seq, node, idx, _finalNodeFirstKey, _finalIdx, this._keyTo, cmp, false, _version);
+            seq = new Seq(null, this._set, seq, node, idx, this._keyTo, cmp, false, _version);
             return seq.over() ? null : seq;
           }
         }

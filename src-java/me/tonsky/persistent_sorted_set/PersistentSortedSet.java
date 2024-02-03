@@ -75,7 +75,6 @@ public class PersistentSortedSet<Key, Address> extends APersistentSortedSet<Key,
   }
 
   // IPersistentSortedSet
-  @Override
   private Seq simpleSlice(Key from, Key to, Comparator<Key> cmp) {
     assert from == null || to == null || cmp.compare(from, to) <= 0 : "From " + from + " after to " + to;
     Seq seq = null;
@@ -111,10 +110,10 @@ public class PersistentSortedSet<Key, Address> extends APersistentSortedSet<Key,
     }
   }
 
-    @Override
-    public Seq slice(Key from, Key to) {
-      return slice(from, to, _cmp);
-    }
+  @Override
+  public Seq slice(Key from, Key to) {
+    return slice(from, to, _cmp);
+  }
 
   @Override
   public Seq slice(Key from, Key to, Comparator<Key> cmp) {
@@ -122,8 +121,19 @@ public class PersistentSortedSet<Key, Address> extends APersistentSortedSet<Key,
       return simpleSlice(from, to, cmp);
     } else {
       Seq simpleSeq = simpleSlice(from, to, cmp);
+      if (simpleSeq == null) return null;
       Seq reverseSeq = simpleRslice(to, from, cmp);
-      return new Seq(null, this, simpleSeq._parent, simpleSeq._node, simpleSeq._idx, reverseSeq._node._keys[0], reverseSeq._idx, simpleSeq._keyTo, cmp, true, simpleSeq._version);
+      return new Seq(null,
+		     this,
+		     simpleSeq._parent,
+		     simpleSeq._node,
+		     simpleSeq._idx,
+		     reverseSeq._node._keys[0],
+		     reverseSeq._idx,
+		     simpleSeq._keyTo,
+		     cmp,
+		     true,
+		     simpleSeq._version);
     }
   }
 
@@ -175,8 +185,20 @@ public class PersistentSortedSet<Key, Address> extends APersistentSortedSet<Key,
       return simpleRslice(from, to, cmp);
     } else {
       Seq simpleSeq = simpleRslice(from, to, cmp);
+      if (simpleSeq == null) return null;
       Seq reverseSeq = simpleSlice(to, from, cmp);
-      return new Seq(null, this, simpleSeq._parent, simpleSeq._node, simpleSeq._idx, reverseSeq._node._keys[0], reverseSeq._idx, simpleSeq._keyTo, cmp, true, simpleSeq._version);
+      if (reverseSeq == null) return simpleSeq;
+      return new Seq(null,
+		     this,
+		     simpleSeq._parent,
+		     simpleSeq._node,
+		     simpleSeq._idx,
+		     reverseSeq._node._keys[0],
+		     reverseSeq._idx,
+		     simpleSeq._keyTo,
+		     cmp,
+		     false,
+		     simpleSeq._version);
     }
   }
 
