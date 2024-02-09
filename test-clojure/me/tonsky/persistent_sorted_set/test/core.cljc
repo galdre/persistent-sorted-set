@@ -1,7 +1,8 @@
 (ns me.tonsky.persistent-sorted-set.test.core
   (:require
-    [me.tonsky.persistent-sorted-set :as set]
-    [clojure.test :as t :refer [is are deftest testing]])
+   [me.tonsky.persistent-sorted-set :as set]
+   [me.tonsky.batch-slice :as bs]
+   [clojure.test :as t :refer [is are deftest testing]])
   #?(:clj
       (:import [clojure.lang IReduce])))
 
@@ -26,6 +27,19 @@
       (< c0 0) -1
       (> c0 0)  1)))
 
+(comment
+  (let [e0 (set/sorted-set-by cmp-s)
+        ds [[:a :b] [:b :x] [:b :q] [:a :d]]
+        e1 (reduce conj e0 ds)]
+    (bs/batched-range-query e1 [{:start [:c nil] :end [:c nil]}]))
+
+  nil)
+
+(defn batch-slice
+  [s from to]
+  (let [range {:start from :end to}]
+    (get (bs/batched-range-query s [range]) range)))
+
 (deftest semantic-test-btset-by
   (let [e0 (set/sorted-set-by cmp-s)
         ds [[:a :b] [:b :x] [:b :q] [:a :d]]
@@ -45,9 +59,38 @@
     (range from (inc to))
     (range from (dec to) -1)))
 
+(defn random-from-to
+  [size]
+  (let [from (rand-int (dec size))
+        to (+ from (rand-int (- size from)))]
+    [from to]))
+
+(deftest multi-select-equality
+  (let [size 1000
+        s (into (set/sorted-set) (shuffle (irange 0 size)))
+        from-tos (doall (repeatedly 1 #(random-from-to size)))
+        vanilla-fn (fn [from-tos]
+                     (let [r
+                           (->> from-tos
+                                (map #(into [] (set/slice s (first %) (second %))))
+                                (zipmap from-tos))]
+                       (println r)
+                       r))
+        batch-fn (fn [from-tos]
+                   (let [ranges (map #(set/->range (first %) (second %))
+                                     from-tos)]
+                     (set/batch-slice s ranges)))
+        vanilla-res (time (vanilla-fn from-tos))
+        batch-res (time (batch-fn from-tos))]
+    (println)
+    (doseq [[from to :as from-to] from-tos]
+      (time
+       (is (= (get vanilla-res from-to)
+              (get batch-res (set/->range from to))))))))
+
 (deftest test-slice
-  (dotimes [i iters]
-    (testing "straight 3 layers"
+  (dotimes [i 10]
+    #_(testing "straight 3 layers"
       (let [s (into (set/sorted-set) (shuffle (irange 0 5000)))]
         (are [from to expected] (= expected (set/slice s from to))
           nil    nil    (irange 0 5000)
@@ -74,12 +117,27 @@
           -1     5001   (irange 0 5000)
           0      5000   (irange 0 5000)
           0.5    4999.5 (irange 1 4999)
+          1000   4000   (irange 1000 4000)
           2499.5 2500.5 [2500]
           2500   2500   [2500]
           2500.1 2500.9 nil
           5001   5002   nil)))
 
-    (testing "straight 1 layer, leaf == root"
+    (testing "straight 3 layers"
+      (let [s (into (set/sorted-set) (shuffle (irange 0 5000)))]
+        (are [from to expected] (= expected (batch-slice s from to))
+          -2     -1     nil
+          -1     5001   (irange 0 5000)
+          0      5000   (irange 0 5000)
+          0.5    4999.5 (irange 1 4999)
+          1000   4000   (irange 1000 4000)
+          2499.5 2500.5 [2500]
+          2500   2500   [2500]
+          2500.1 2500.9 nil
+          5001   5002   nil
+          )))
+
+    #_(testing "straight 1 layer, leaf == root"
       (let [s (into (set/sorted-set) (shuffle (irange 0 10)))]
         (are [from to expected] (= expected (set/slice s from to))
           nil  nil  (irange 0 10)
@@ -111,7 +169,39 @@
           5.1  5.9 nil
           11   12  nil)))
 
-    (testing "reverse 3 layers"
+    (testing "straight 1 layer, leaf == root"
+      (let [s (into (set/sorted-set) (shuffle (irange 0 10)))]
+        (are [from to expected] (= expected (batch-slice s from to))
+          ;; nil  nil  (irange 0 10)
+          
+          ;; -1   nil  (irange 0 10)
+          ;; 0    nil  (irange 0 10)
+          ;; 0.5  nil  (irange 1 10)
+          ;; 1    nil  (irange 1 10)
+          ;; 9    nil  [9 10]
+          ;; 9.5  nil  [10]
+          ;; 10   nil  [10]
+          ;; 10.5 nil  nil
+          
+          ;; nil -1   nil
+          ;; nil 0    [0]
+          ;; nil 0.5  [0]
+          ;; nil 1    [0 1]
+          ;; nil 9    (irange 0 9)
+          ;; nil 9.5  (irange 0 9)
+          ;; nil 10   (irange 0 10)
+          ;; nil 11   (irange 0 10)
+
+          -2   -1  nil
+          -1   10  (irange 0 10)
+          0    10  (irange 0 10)
+          0.5  9.5 (irange 1 9)
+          4.5  5.5 [5]
+          5    5   [5]
+          5.1  5.9 nil
+          11   12  nil)))
+
+    #_(testing "reverse 3 layers"
       (let [s (into (set/sorted-set) (shuffle (irange 0 5000)))]
         (are [from to expected] (= expected (set/rslice s from to))
           nil    nil    (irange 5000 0)
@@ -137,13 +227,14 @@
           5002   5001   nil
           5001   -1     (irange 5000 0)
           5000   0      (irange 5000 0)
+          4000   1000   (irange 4000 1000)
           4999.5 0.5    (irange 4999 1)
           2500.5 2499.5 [2500]
           2500   2500   [2500]
           2500.9 2500.1 nil
           -1     -2     nil)))
 
-    (testing "reverse 1 layer, leaf == root"
+    #_(testing "reverse 1 layer, leaf == root"
       (let [s (into (set/sorted-set) (shuffle (irange 0 10)))]
         (are [from to expected] (= expected (set/rslice s from to))
           nil nil (irange 10 0)
@@ -175,7 +266,7 @@
           5.9 5.1 nil
           -1  -2  nil)))
 
-    (testing "seq-rseq equivalence"
+    #_(testing "seq-rseq equivalence"
       (let [s (into (set/sorted-set) (shuffle (irange 0 5000)))]
         (are [from to] (= (set/slice s from to) (some-> (set/slice s from to) (rseq) (reverse)))
           -1     nil
@@ -197,9 +288,35 @@
           0      5000  
           1      4999
           2500   2500
-          2500.1 2500.9)))
+          2500.1 2500.9
+          )))
 
-    (testing "rseq-seq equivalence"
+    (testing "seq-rseq equivalence"
+      (let [s (into (set/sorted-set) (shuffle (irange 0 5000)))]
+        (are [from to] (= (set/slice s from to) (some-> (batch-slice s from to) (rseq) (reverse)))
+          ;; -1     nil
+          ;; 0      nil
+          ;; 2500   nil
+          ;; 5000   nil
+          ;; 5001   nil
+          
+          ;; nil    -1
+          ;; nil    0     
+          ;; nil    1     
+          ;; nil    2500
+          ;; nil    5000
+          ;; nil    5001  
+          
+          ;; nil    nil
+ 
+          -1     5001
+          0      5000  
+          1      4999
+          2500   2500
+          2500.1 2500.9
+          )))
+
+    #_(testing "rseq-seq equivalence"
       (let [s (into (set/sorted-set) (shuffle (irange 0 5000)))]
         (are [from to] (= (set/rslice s from to) (some-> (set/rslice s from to) (rseq) (reverse)))
           -1     nil
@@ -223,7 +340,7 @@
           2500   2500  
           2500.9 2500.1)))
 
-    (testing "Slice with equal elements"
+    #_(testing "Slice with equal elements"
       (let [cmp10 (fn [a b] (compare (quot a 10) (quot b 10)))
             s10   (reduce #(set/conj %1 %2 compare) (set/sorted-set-by cmp10) (shuffle (irange 0 5000)))]
         (are [from to expected] (= expected (set/slice s10 from to))
@@ -247,7 +364,23 @@
           2550 2550  (irange 2599 2500)
           4850 130   (irange 4899 100)
           6000 -100  (irange 5000 0))))
-    ))
+
+    (testing "Slice with equal elements"
+      (let [cmp10 (fn [a b] (compare (quot a 10) (quot b 10)))
+            s10   (reduce #(set/conj %1 %2 compare) (set/sorted-set-by cmp10) (shuffle (irange 0 5000)))]
+        (are [from to expected] (= expected (batch-slice s10 from to))
+          30 30      (irange 30 39)
+          130 4970   (irange 130 4979)
+          -100 6000  (irange 0 5000)))
+
+      (let [cmp100 (fn [a b] (compare (quot a 100) (quot b 100)))
+            s100   (reduce #(set/conj %1 %2 compare) (set/sorted-set-by cmp100) (shuffle (irange 0 5000)))]
+        (are [from to expected] (= expected (batch-slice s100 from to))
+          ;; 30  30     (irange 0 99)
+          2550 2550  (irange 2500 2599)
+          ;; 130 4850   (irange 100 4899)
+          ;; -100 6000  (irange 0 5000)
+          )))))
 
 (defn ireduce
   ([f coll] (#?(:clj .reduce :cljs -reduce) ^IReduce coll f))

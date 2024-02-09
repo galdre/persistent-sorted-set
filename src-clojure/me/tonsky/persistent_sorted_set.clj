@@ -3,13 +3,21 @@
   me.tonsky.persistent-sorted-set
   (:refer-clojure :exclude [conj disj sorted-set sorted-set-by])
   (:require
-    [me.tonsky.persistent-sorted-set.arrays :as arrays])
+   [me.tonsky.batch-slice :as bs]
+   [me.tonsky.persistent-sorted-set.arrays :as arrays])
   (:import
-    [clojure.lang RT]
-    [java.lang.ref SoftReference]
-    [java.util Comparator Arrays]
-    [java.util.function BiConsumer]
-    [me.tonsky.persistent_sorted_set ANode ArrayUtil Branch IStorage Leaf PersistentSortedSet RefType Settings Seq]))
+   [clojure.lang RT]
+   [java.util Arrays Comparator]
+   [me.tonsky.persistent_sorted_set
+    ANode
+    ArrayUtil
+    Branch
+    IStorage
+    Leaf
+    PersistentSortedSet
+    RefType
+    Seq
+    Settings]))
 
 (set! *warn-on-reflection* true)
 
@@ -32,6 +40,13 @@
    (.slice set from to))
   ([^PersistentSortedSet set from to ^Comparator cmp]
    (.slice set from to cmp)))
+
+(defn ->range [from to] (bs/->Range from to))
+
+(defn batch-slice
+  "Does the things."
+  [^PersistentSortedSet set ranges]
+  (bs/batched-range-query set ranges))
 
 (defn rslice
   "A reverse iterator for part of the set with provided boundaries.

@@ -50,7 +50,11 @@ public class Seq extends ASeq implements IReduce, Reversible, IChunkedSeq, ISeek
   private boolean isFinalLeaf() {
     if (_finalNodeFirstKey == null) return false;
     int d = _cmp.compare(_node._keys[0], _finalNodeFirstKey);
-    return d == 0;
+    if (_asc) {
+	return d >= 0;
+    } else {
+	return d <= 0;
+    }
   }
 
   void checkVersion() {
@@ -70,12 +74,10 @@ public class Seq extends ASeq implements IReduce, Reversible, IChunkedSeq, ISeek
       return _asc ? d > 0 : d < 0;
     } else {
       if (_asc) {
-        // Test > vs >=
-        return _isFinalLeaf && _idx > _finalIdx;
+	return _isFinalLeaf && _node.level() == 0 && _idx > _finalIdx;
       } else {
-        return _isFinalLeaf && _idx < _finalIdx;
+	return _isFinalLeaf && _node.level() == 0 && _idx < _finalIdx;
       }
-      
     }
   }
 
@@ -85,7 +87,7 @@ public class Seq extends ASeq implements IReduce, Reversible, IChunkedSeq, ISeek
       if (_idx < _node._len - 1) {
         _idx++;
         return !over();
-      } else if (_parent != null) {
+      } else if (_parent != null && !_isFinalLeaf) {
         _parent = _parent.next();
         if (_parent != null) {
           _node = _parent.child();
@@ -98,7 +100,7 @@ public class Seq extends ASeq implements IReduce, Reversible, IChunkedSeq, ISeek
       if (_idx > 0) {
         _idx--;
         return !over();
-      } else if (_parent != null) {
+      } else if (_parent != null && !_isFinalLeaf) {
         _parent = _parent.next();
         if (_parent != null) {
           _node = _parent.child();

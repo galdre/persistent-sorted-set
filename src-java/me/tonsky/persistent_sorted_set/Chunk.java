@@ -17,7 +17,18 @@ class Chunk implements IChunk {
     _idx  = seq._idx;
     _keys = seq._node._keys;
     _version = seq._version;
-    if (_asc) {
+
+    if (seq._finalNodeFirstKey != null) {
+	if (seq._isFinalLeaf) {
+	    _end = seq._finalIdx;
+	} else {
+	    if (_asc) {
+		_end = seq._node._len - 1;
+	    } else {
+		_end = 0;
+	    }
+	}
+    } else if (_asc) {
       int end = seq._node._len - 1;
       if (seq._keyTo != null)
         while (end > _idx && seq._cmp.compare(_keys[end], seq._keyTo) > 0)
@@ -30,6 +41,11 @@ class Chunk implements IChunk {
           ++end;
       _end = end;
     }
+    // if (seq._finalNodeFirstKey != null && seq._isFinalLeaf) {
+    // 	System.out.println("Chunk - _end: " + _end
+    // 			   + ", _finalIdx: " + seq._finalIdx);
+    // 	System.out.flush();
+    // }
   }
 
   Chunk(PersistentSortedSet set, Object[] keys, int idx, int end, boolean asc, int version) {

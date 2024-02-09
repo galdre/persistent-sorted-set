@@ -117,9 +117,9 @@ public class PersistentSortedSet<Key, Address> extends APersistentSortedSet<Key,
 
   @Override
   public Seq slice(Key from, Key to, Comparator<Key> cmp) {
-    if (to == null) {
-      return simpleSlice(from, to, cmp);
-    } else {
+    // if (to == null) {
+    //   return simpleSlice(from, to, cmp);
+    // } else {
       Seq simpleSeq = simpleSlice(from, to, cmp);
       if (simpleSeq == null) return null;
       Seq reverseSeq = simpleRslice(to, from, cmp);
@@ -134,7 +134,7 @@ public class PersistentSortedSet<Key, Address> extends APersistentSortedSet<Key,
 		     cmp,
 		     true,
 		     simpleSeq._version);
-    }
+    // }
   }
 
   private Seq simpleRslice(Key from, Key to, Comparator<Key> cmp) {
@@ -181,13 +181,17 @@ public class PersistentSortedSet<Key, Address> extends APersistentSortedSet<Key,
   }
 
   public Seq rslice(Key from, Key to, Comparator<Key> cmp) {
-    if (to == null) {
-      return simpleRslice(from, to, cmp);
-    } else {
+    // if (to == null) {
+    //   return simpleRslice(from, to, cmp);
+    // } else {
       Seq simpleSeq = simpleRslice(from, to, cmp);
       if (simpleSeq == null) return null;
       Seq reverseSeq = simpleSlice(to, from, cmp);
-      if (reverseSeq == null) return simpleSeq;
+      if (reverseSeq == null) {
+	  System.out.println("This is still necesary.");
+	  System.out.flush();
+	  return simpleSeq;
+      }
       return new Seq(null,
 		     this,
 		     simpleSeq._parent,
@@ -199,7 +203,7 @@ public class PersistentSortedSet<Key, Address> extends APersistentSortedSet<Key,
 		     cmp,
 		     false,
 		     simpleSeq._version);
-    }
+    // }
   }
 
   public void walkAddresses(IFn onAddress) {
