@@ -4,6 +4,7 @@
   (:refer-clojure :exclude [conj disj sorted-set sorted-set-by])
   (:require
    [me.tonsky.batch-slice :as bs]
+   [me.tonsky.batch-slice-2 :as bs2]
    [me.tonsky.persistent-sorted-set.arrays :as arrays])
   (:import
    [clojure.lang RT]
@@ -47,6 +48,13 @@
   "Does the things."
   [^PersistentSortedSet set ranges]
   (bs/batched-range-query set ranges))
+
+(defn ->range-2 [from to] (bs2/->Range from to))
+
+(defn batch-slice-2
+  "Does the things."
+  [^PersistentSortedSet set ranges]
+  (bs2/batched-range-query set ranges))
 
 (defn rslice
   "A reverse iterator for part of the set with provided boundaries.

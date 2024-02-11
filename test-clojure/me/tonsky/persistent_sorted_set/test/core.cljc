@@ -1,10 +1,13 @@
 (ns me.tonsky.persistent-sorted-set.test.core
   (:require
-   [me.tonsky.persistent-sorted-set :as set]
+   [clojure.data :as data]
+   [clojure.test :as t :refer [are deftest is testing]]
    [me.tonsky.batch-slice :as bs]
-   [clojure.test :as t :refer [is are deftest testing]])
+   [me.tonsky.batch-slice-2 :as bs2]
+   [me.tonsky.persistent-sorted-set :as set])
   #?(:clj
-      (:import [clojure.lang IReduce])))
+      (:import
+       [clojure.lang IReduce])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -31,7 +34,7 @@
   (let [e0 (set/sorted-set-by cmp-s)
         ds [[:a :b] [:b :x] [:b :q] [:a :d]]
         e1 (reduce conj e0 ds)]
-    (bs/batched-range-query e1 [{:start [:c nil] :end [:c nil]}]))
+    (bs/batched-range-query e1 [{:start [:a nil] :end [:c nil]}]))
 
   nil)
 
@@ -39,6 +42,11 @@
   [s from to]
   (let [range {:start from :end to}]
     (get (bs/batched-range-query s [range]) range)))
+
+(defn batch-slice-2
+  [s from to]
+  (let [range {:start from :end to}]
+    (bs2/batched-range-query s [range]) range))
 
 (deftest semantic-test-btset-by
   (let [e0 (set/sorted-set-by cmp-s)
@@ -65,21 +73,46 @@
         to (+ from (rand-int (- size from)))]
     [from to]))
 
+(def the-test-set
+  (into (set/sorted-set) (shuffle (irange 0 100000))))
+
+(def the-ranges (doall (repeatedly 1 #(random-from-to 100000))))
+
+(defn bench-methods
+  []
+  (let [vanilla-fn (fn [from-tos]
+                     (let [r
+                           (->> from-tos
+                                (map #(into [] (set/slice the-test-set (first %) (second %))))
+                                (zipmap from-tos))]
+                       r))
+        batch-fn (fn [from-tos]
+                   (let [ranges (map #(set/->range (first %) (second %))
+                                     from-tos)]
+                     (set/batch-slice the-test-set ranges)))
+        _ (println "-----")
+        vanilla-res (time (vanilla-fn the-ranges))
+        batch-res (time (batch-fn the-ranges))]
+    (time (with-out-str (println vanilla-res)))
+    (time (with-out-str (println batch-res)))
+    :done
+    ))
+
 (deftest multi-select-equality
-  (let [size 1000
+  (let [size 100000
         s (into (set/sorted-set) (shuffle (irange 0 size)))
-        from-tos (doall (repeatedly 1 #(random-from-to size)))
+        from-tos (doall (repeatedly 100 #(random-from-to size)))
         vanilla-fn (fn [from-tos]
                      (let [r
                            (->> from-tos
                                 (map #(into [] (set/slice s (first %) (second %))))
                                 (zipmap from-tos))]
-                       (println r)
                        r))
         batch-fn (fn [from-tos]
                    (let [ranges (map #(set/->range (first %) (second %))
                                      from-tos)]
                      (set/batch-slice s ranges)))
+        _ (println "-------")
         vanilla-res (time (vanilla-fn from-tos))
         batch-res (time (batch-fn from-tos))]
     (println)
@@ -87,6 +120,65 @@
       (time
        (is (= (get vanilla-res from-to)
               (get batch-res (set/->range from to))))))))
+
+;; The comparator passed to clojure.core/sorted-set-by
+;; not ONLY sorts, but ALSO deduplicates when =.
+;; This causes bugs in the new code!
+
+;; IDEA:
+;; The query engine just needs a range query, not a per-range query
+;; So we can collapse the ranges as we go, simply fetching everything in order in the end.
+;; A single "covering" range is sufficient to short-circuit all the way to the end.
+
+;; NOTE: it is NOT true that:
+;; with collapsing, there never need be more than one active at a time
+;;
+
+(comment
+  (def test-set (into (set/sorted-set) (shuffle (irange 0 5000))))
+
+  (let [from-tos [[4909 4968] [479 4810] [3548 4881]]
+        #_(doall (repeatedly 3 #(random-from-to 5000)))
+        vanilla-fn (fn [from-tos]
+                     (into (sorted-set) (mapcat #(set/slice test-set (first %) (second %))) from-tos))
+        batch-2-fn (fn [from-tos]
+                     (let [ranges (map #(set/->range (first %) (second %))
+                                       from-tos)]
+                       (into (sorted-set)
+                             (set/batch-slice-2 test-set ranges))))
+        _ (println "-------")
+        vanilla-res (time (vanilla-fn from-tos))
+        batch-2-res (time (batch-2-fn from-tos))]
+    (when-not (= vanilla-res batch-2-res)
+      (clojure.pprint/pprint
+       {:from-tos from-tos
+        :diff
+        (data/diff vanilla-res batch-2-res)})))
+  ;; [1 16] [11 16] [15 16]
+  nil)
+
+(deftest multi-select-equality-2
+  (let [size 100000
+        s (into (set/sorted-set) (shuffle (irange 0 size)))
+        from-tos (doall (repeatedly 1000 #(random-from-to size)))
+        vanilla-fn (fn [from-tos]
+                     (into (sorted-set) (mapcat #(set/slice s (first %) (second %))) from-tos))
+        batch-2-fn (fn [from-tos]
+                     (let [ranges (map #(set/->range (first %) (second %))
+                                       from-tos)]
+                       (into (sorted-set)
+                             (set/batch-slice-2 s ranges))))
+        _ (println "-------")
+        vanilla-res (time (vanilla-fn from-tos))
+        batch-2-res (time (batch-2-fn from-tos))]
+    (println)
+    (is (= vanilla-res
+           batch-2-res))
+    #_(doseq [[from to :as from-to] from-tos]
+        #_(time)
+        (is (= (get vanilla-res from-to)
+               batch-2-res)
+            (pr-str from-to)))))
 
 (deftest test-slice
   (dotimes [i 10]

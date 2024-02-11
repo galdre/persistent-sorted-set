@@ -99,7 +99,7 @@
                                      ranges:start)
             newly-finished (take-while #(<* cmp (:end %) k) active-ranges:end)
             active-ranges:end (-> active-ranges:end (outfrom newly-finished) (into newly-active))
-            ranges:start (outfrom ranges:start newly-active)
+            ranges:start (subvec ranges:start (count newly-active)) #_(outfrom ranges:start newly-active)
             results' (persistent!
                       (reduce
                        (fn [results' range]
@@ -126,7 +126,7 @@
 (defn process-inactive
   [cmp k inactive-ranges:start]
   (let [newly-active (take-while #(<=* cmp (:start %) k) inactive-ranges:start)]
-    [newly-active (outfrom inactive-ranges:start newly-active)]))
+    [newly-active (subvec inactive-ranges:start (count newly-active)) #_(outfrom inactive-ranges:start newly-active)]))
 
 (defn ->newly-covering
   [cmp prev-k k active-ranges:start active-ranges:end]
@@ -145,7 +145,7 @@
     ;; no lower bound known.
     ;; This means we can't know which ranges are "finished" or "covering"
     ;; Only occurs on left-most branches.
-    [covering-ranges (into active-ranges:start newly-active) (into active-ranges:end newly-active)]
+    [#_nil covering-ranges (into active-ranges:start newly-active) (into active-ranges:end newly-active)]
     (let [;; We will entirely drop these ranges:
           newly-finished (take-while #(<* cmp (:end %) prev-k) active-ranges:end)
           ;; Note: ^^^^ not <=* because comparator might establish funky equivalence classes
@@ -153,7 +153,8 @@
           ;; Calculate new covering ranges:
           newly-covering (->newly-covering cmp prev-k k active-ranges:start active-ranges:end)
           active-removals newly-finished #_(concat newly-finished newly-covering)]
-      [newly-covering
+      [#_newly-finished
+       newly-covering
        (-> active-ranges:start (outfrom active-removals) (into newly-active))
        (-> active-ranges:end (outfrom active-removals) (into newly-active))])))
 
@@ -167,13 +168,16 @@
   ;; What were active-ranges for the parent start as inactive for the children.
   (let [v:inactive-ranges:start (volatile! inactive-ranges:start)
         v:active-ranges:start (volatile! (sorted-set-by start-cmp))
-        v:active-ranges:end (volatile! (sorted-set-by end-cmp))]
+        v:active-ranges:end (volatile! (sorted-set-by end-cmp))
+        ;; next-activation-k (volatile! (next-activation node cmp inactive-ranges:start))
+        ]
     (fn [idx [prev-k k]]
       ;; k is inclusive upper-bound for the branch.
       (when k;; The library pads the end of the keys array with `nil`s.
         (let [inactive-ranges:start @v:inactive-ranges:start
               active-ranges:start @v:active-ranges:start
               active-ranges:end @v:active-ranges:end]
+
           (when (or (seq inactive-ranges:start) (seq covering-ranges) (seq active-ranges:start))
             (let [;; Linear in non-inactive-ranges:
                   [newly-active inactive-ranges:start] (process-inactive cmp k inactive-ranges:start)
@@ -193,7 +197,7 @@
                 ;; the child is a leaf:
                 (leaf-range-query child-delay cmp end-cmp
                                   (into covering-ranges newly-covering)
-                                  (outfrom active-ranges:start newly-covering))
+                                  (vec (outfrom active-ranges:start newly-covering)))
                 (range-query* child-delay storage cmp start-cmp end-cmp prev-k
                               (into covering-ranges newly-covering)
                               (outfrom active-ranges:start newly-covering))))))))))
@@ -232,7 +236,8 @@
         start-cmp (comparator-by cmp :start)
         end-cmp (comparator-by cmp :end)
         storage (.-_storage btset)
-        ranges:start (into (sorted-set-by start-cmp) ranges)
+        ranges:start (into [] (sort start-cmp ranges))
+        #_(into (sorted-set-by start-cmp) ranges)
         result-stream (if (= 0 (.level btset-root))
                         (leaf-range-query (delay btset-root) cmp end-cmp nil ranges:start)
                         (range-query* (delay btset-root) storage cmp start-cmp end-cmp nil [] ranges:start))]
