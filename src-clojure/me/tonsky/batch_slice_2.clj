@@ -33,9 +33,16 @@
        ())))
 
 (defn comparator-by
-  ^Comparator [^Comparator cmp f1 f2]
+  ^Comparator [^Comparator cmp f1->int f2 f3]
   (fn [a b]
-    (let [r (.compare cmp (f1 a) (f1 b))]
+    (let [r (compare (f1->int a) (f1->int b))]
+      (if (zero? r)
+        (let [r (.compare cmp (f2 a) (f2 b))]
+          (if (zero? r)
+            (.compare cmp (f3 a) (f3 b))
+            r))
+        r))
+    #_(let [r (.compare cmp (f1 a) (f1 b))]
       (if (zero? r)
         (.compare cmp (f2 a) (f2 b))
         r))))
@@ -284,9 +291,12 @@
         (->> (branch-solo-query (delay btset-root) storage 0 cmp (first ranges))
              (into [] cat)))
       ;; Multiple Ranges:
-      (let [start-cmp (comparator-by cmp :start :end)
-            end-cmp (comparator-by cmp :end :start)
-            ranges:start (into [] (sort start-cmp ranges))]
+      (let [janky-cmp (comparator-by cmp (constantly 0) :start :end)
+            start-cmp (comparator-by cmp #(-> % meta :activation-idx deref) :start :end)
+            end-cmp (comparator-by cmp #(-> % meta :deactivation-idx deref) :end :start)
+            ;; start-cmp (comparator-by cmp :start :end)
+            ;; end-cmp (comparator-by cmp :end :start)
+            ranges:start (into [] (sort janky-cmp #_start-cmp ranges))]
         (if is-a-leaf
           (leaf-ranges-query (delay btset-root) cmp ranges:start)
           (->> (branch-ranges-query (delay btset-root) storage 0 cmp start-cmp end-cmp ranges:start)
