@@ -153,7 +153,7 @@
     (loop [idx 0
            subresults (transient [])]
       (if (== idx len)
-        (persistent! subresults)
+        (eduction cat (persistent! subresults))
         (let [child-delay (delay (fetch-node node storage idx))
               new-result (if next-is-leaf
                            (lazy-seq (leaf-covering-query child-delay))
@@ -171,7 +171,7 @@
     (loop [idx (range-activation-idx node cmp range)
            subresults (transient [])]
       (if (or (= idx len) (= idx end-idx))
-        (persistent! subresults)
+        (eduction cat (persistent! subresults))
         (let [child-delay (delay (fetch-node node storage idx))
               new-result (if (is-not-covering? parent-idx idx len range)
                            (if next-is-leaf
@@ -181,8 +181,10 @@
                               (branch-solo-query child-delay storage idx cmp range)))
                            (if next-is-leaf
                              (lazy-seq (leaf-covering-query child-delay))
-                             (lazy-seq (branch-covering-query child-delay storage))))]
-          (recur (inc idx) (conj! subresults new-result)))))))
+                             (lazy-seq (branch-covering-query child-delay storage))))
+              next-idx (unchecked-inc idx)]
+          (recur next-idx
+                 (conj! subresults new-result)))))))
 
 (defn branch-ranges-query
   [node-delay
@@ -214,7 +216,7 @@
              next-deactivation-idx nil
              subresults (transient [])]
         (cond (= idx shortcircuit-idx)
-              (persistent! subresults)
+              (eduction cat (persistent! subresults))
 
               (some->> next-deactivation-idx (= idx))
               (let [newly-inactive (first active-ranges:end)
@@ -242,7 +244,7 @@
                        subresults))
               (empty? active-ranges:start)
               (if (nil? next-activation-idx)
-                (persistent! subresults)
+                (eduction cat (persistent! subresults))
                 (recur inactive-ranges:start
                        active-ranges:start
                        active-ranges:end
@@ -264,11 +266,11 @@
                                             cmp
                                             active-ranges:start)))
                       (if covering
-                        (->> (branch-covering-query child-delay storage)
-                             (sequence cat))
-                        (->> (branch-ranges-query child-delay storage idx cmp start-cmp end-cmp
-                                           active-ranges:start)
-                             (sequence cat))))]
+                        (lazy-seq
+                         (branch-covering-query child-delay storage))
+                        (lazy-seq
+                         (branch-ranges-query child-delay storage idx cmp start-cmp end-cmp
+                                              active-ranges:start))))]
                 (recur inactive-ranges:start
                        active-ranges:start
                        active-ranges:end
@@ -288,8 +290,7 @@
       ;; Single Range:
       (if is-a-leaf
         (leaf-solo-query (delay btset-root) cmp (first ranges))
-        (->> (branch-solo-query (delay btset-root) storage 0 cmp (first ranges))
-             (into [] cat)))
+        (branch-solo-query (delay btset-root) storage 0 cmp (first ranges)))
       ;; Multiple Ranges:
       (let [janky-cmp (comparator-by cmp (constantly 0) :start :end)
             start-cmp (comparator-by cmp #(-> % meta :activation-idx deref) :start :end)
@@ -299,5 +300,4 @@
             ranges:start (into [] (sort janky-cmp #_start-cmp ranges))]
         (if is-a-leaf
           (leaf-ranges-query (delay btset-root) cmp ranges:start)
-          (->> (branch-ranges-query (delay btset-root) storage 0 cmp start-cmp end-cmp ranges:start)
-               (into [] cat)))))))
+          (branch-ranges-query (delay btset-root) storage 0 cmp start-cmp end-cmp ranges:start))))))

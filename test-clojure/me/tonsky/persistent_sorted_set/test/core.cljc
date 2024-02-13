@@ -180,6 +180,27 @@
                batch-2-res)
             (pr-str from-to)))))
 
+(deftest multi-select-equality-3
+  (let [size 100000
+        s (into (set/sorted-set) (shuffle (irange 0 size)))
+        from-tos [[12345 90350]] #_[[12345 12350] [15230 15300]]#_(doall (repeatedly 10 #(random-from-to size)))
+        vanilla-fn (fn [from-tos]
+                     (let [from (reduce min (map first from-tos))
+                           to (reduce max (map second from-tos))]
+                       (doall (set/slice s from to)))
+                     #_(into (sorted-set) (mapcat #(set/slice s (first %) (second %))) from-tos))
+        batch-2-fn (fn [from-tos]
+                     (let [ranges (map #(set/->range (first %) (second %))
+                                       from-tos)]
+                       (doall (set/batch-slice-2 s ranges))
+                       ))
+        _ (println "-------")
+        vanilla-res (time (vanilla-fn from-tos))
+        batch-2-res (time (batch-2-fn from-tos))]
+    (println)
+    #_(is (= vanilla-res
+             batch-2-res))))
+
 (deftest test-slice
   (dotimes [i 10]
     #_(testing "straight 3 layers"
